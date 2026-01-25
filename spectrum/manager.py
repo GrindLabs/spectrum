@@ -34,7 +34,6 @@ class BrowserManager:
         instance = self.instances.get(instance_id)
 
         if not instance:
-
             return
 
         instance.close()
@@ -44,7 +43,6 @@ class BrowserManager:
         """Close all instances."""
 
         for instance in list(self.instances.values()):
-
             instance.close()
 
         self.instances.clear()

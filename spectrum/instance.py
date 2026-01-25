@@ -42,7 +42,6 @@ class BrowserInstance:
         """Start the browser process if it is not running."""
 
         if self.process and self.process.poll() is None:
-
             return self.process
 
         args = [self.browser_path, *self._build_flags()]
@@ -60,11 +59,9 @@ class BrowserInstance:
         """Terminate the browser process."""
 
         if not self.process:
-
             return
 
         if self.process.poll() is None:
-
             self.process.terminate()
 
         try:
@@ -82,13 +79,7 @@ class BrowserInstance:
             candidate = Path(self.config.profile_dir)
             candidate_value = str(candidate)
 
-            if (
-                not candidate_value.startswith(
-                    settings.PROFILE_BASE_DIR + settings.PATH_SEPARATOR
-                )
-                and candidate_value != settings.PROFILE_BASE_DIR
-            ):
-
+            if not candidate_value.startswith(settings.PROFILE_BASE_DIR + settings.PATH_SEPARATOR) and candidate_value != settings.PROFILE_BASE_DIR:
                 candidate = base_dir / candidate.name
 
             candidate.mkdir(parents=True, exist_ok=True)
@@ -104,15 +95,12 @@ class BrowserInstance:
         """Resolve the browser executable path."""
 
         if self.config.browser_path:
-
             return self.config.browser_path
 
         candidates = self._default_browser_paths()
 
         for path in candidates:
-
             if Path(path).exists():
-
                 return path
 
         raise FileNotFoundError(settings.ERROR_CHROME_NOT_FOUND)
@@ -121,11 +109,9 @@ class BrowserInstance:
         """Return default executable paths for the platform."""
 
         if sys.platform == settings.PLATFORM_DARWIN:
-
             return list(settings.CHROME_PATHS_DARWIN)
 
         if sys.platform.startswith(settings.PLATFORM_LINUX_PREFIX):
-
             return list(settings.CHROME_PATHS_LINUX)
 
         return []
@@ -134,11 +120,9 @@ class BrowserInstance:
         """Return the window size to use for the browser."""
 
         if self.config.window_size:
-
             return self.config.window_size
 
         if self.config.viewport:
-
             return self.config.viewport
 
         return None
@@ -154,24 +138,17 @@ class BrowserInstance:
         ]
 
         if sys.platform.startswith(settings.PLATFORM_LINUX_PREFIX):
-
             flags.extend(settings.LINUX_EXTRA_FLAGS)
 
         window_size = self._window_size()
 
         if window_size:
-
-            flags.append(
-                f"{settings.WINDOW_SIZE_FLAG}={window_size[0]}"
-                f"{settings.WINDOW_SIZE_SEPARATOR}{window_size[1]}"
-            )
+            flags.append(f"{settings.WINDOW_SIZE_FLAG}={window_size[0]}{settings.WINDOW_SIZE_SEPARATOR}{window_size[1]}")
 
         if self.config.proxy:
-
             flags.append(f"{settings.PROXY_SERVER_FLAG}={self.config.proxy}")
 
         if self.config.extra_flags:
-
             flags.extend(self.config.extra_flags)
 
         return flags

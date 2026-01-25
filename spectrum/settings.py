@@ -1,6 +1,5 @@
 from typing import Final, Optional, Sequence, Tuple
 
-
 PROFILE_BASE_DIR: Final[str] = "/tmp"
 PROFILE_PREFIX: Final[str] = "spectrum-profile"
 PATH_SEPARATOR: Final[str] = "/"
