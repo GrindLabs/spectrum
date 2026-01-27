@@ -48,4 +48,6 @@ CHROME_PATHS_LINUX: Final[Sequence[str]] = (
 )
 
 SHUTDOWN_TIMEOUT_SECONDS: Final[int] = 5
+STARTUP_TIMEOUT_SECONDS: Final[float] = 5.0
+STARTUP_POLL_INTERVAL_SECONDS: Final[float] = 0.1
 ERROR_CHROME_NOT_FOUND: Final[str] = "Chrome executable not found"

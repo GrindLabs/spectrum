@@ -1,9 +1,11 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 from urllib import parse, request
+from urllib.error import URLError
 from uuid import uuid4
 
 from . import settings
@@ -64,6 +66,7 @@ class BrowserInstance:
             raise ValueError("url is required")
 
         self.start()
+        self._wait_for_cdp()
         target_url = f"{self.endpoint}/json/new?{parse.quote(url, safe='')}"
 
         with request.urlopen(target_url) as response:
@@ -85,6 +88,25 @@ class BrowserInstance:
 
         except subprocess.TimeoutExpired:
             self.process.kill()
+
+    def _wait_for_cdp(self) -> None:
+        """Wait until the CDP HTTP endpoint is reachable."""
+
+        deadline = time.monotonic() + settings.STARTUP_TIMEOUT_SECONDS
+        target_url = f"{self.endpoint}/json/version"
+        last_error: Optional[Exception] = None
+
+        while time.monotonic() < deadline:
+            try:
+                with request.urlopen(target_url) as response:
+                    if response.status == 200:
+                        return
+            except URLError as exc:
+                last_error = exc
+
+            time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+
+        raise TimeoutError("CDP endpoint did not become available") from last_error
 
     def _resolve_profile_dir(self) -> str:
         """Return a profile directory under the base dir."""
