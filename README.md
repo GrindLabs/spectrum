@@ -28,6 +28,7 @@ config = BrowserConfig(
 )
 instance = manager.launch(config)
 print(instance.endpoint)
+instance.goto("https://example.com")
 manager.close_all()
 ```
 

@@ -1,7 +1,9 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib import parse, request
 from uuid import uuid4
 
 from . import settings
@@ -54,6 +56,20 @@ class BrowserInstance:
         )
 
         return self.process
+
+    def goto(self, url: str) -> dict:
+        """Open a new page via the CDP HTTP endpoint."""
+
+        if not url:
+            raise ValueError("url is required")
+
+        self.start()
+        target_url = f"{self.endpoint}/json/new?{parse.quote(url, safe='')}"
+
+        with request.urlopen(target_url) as response:
+            payload = response.read().decode("utf-8")
+
+        return json.loads(payload)
 
     def close(self) -> None:
         """Terminate the browser process."""
