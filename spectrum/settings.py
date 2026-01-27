@@ -28,6 +28,7 @@ DEFAULT_FLAGS: Final[Sequence[str]] = (
     "--disable-popup-blocking",
     "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
+    "--remote-allow-origins=*",
 )
 
 LINUX_EXTRA_FLAGS: Final[Sequence[str]] = ("--no-sandbox",)
