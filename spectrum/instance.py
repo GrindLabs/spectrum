@@ -4,9 +4,11 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
-from urllib import parse, request
+from urllib import request
 from urllib.error import URLError
 from uuid import uuid4
+
+from websocket import create_connection
 
 from . import settings
 from .config import BrowserConfig
@@ -60,19 +62,22 @@ class BrowserInstance:
         return self.process
 
     def goto(self, url: str) -> dict:
-        """Open a new page via the CDP HTTP endpoint."""
+        """Open a new page via the CDP WebSocket endpoint."""
 
         if not url:
             raise ValueError("url is required")
 
         self.start()
         self._wait_for_cdp()
-        target_url = f"{self.endpoint}/json/new?{parse.quote(url, safe='')}"
 
-        with request.urlopen(target_url) as response:
-            payload = response.read().decode("utf-8")
+        ws_url = self._browser_websocket_url()
+        result = self._send_cdp_command(
+            ws_url,
+            "Target.createTarget",
+            {"url": url},
+        )
 
-        return json.loads(payload)
+        return result
 
     def close(self) -> None:
         """Terminate the browser process."""
@@ -107,6 +112,50 @@ class BrowserInstance:
             time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
 
         raise TimeoutError("CDP endpoint did not become available") from last_error
+
+    def _browser_websocket_url(self) -> str:
+        """Return the browser-level WebSocket debugger URL."""
+
+        target_url = f"{self.endpoint}/json/version"
+
+        with request.urlopen(target_url) as response:
+            payload = response.read().decode("utf-8")
+
+        data = json.loads(payload)
+        ws_url = data.get("webSocketDebuggerUrl")
+
+        if not ws_url:
+            raise RuntimeError("Missing webSocketDebuggerUrl from CDP version endpoint")
+
+        return ws_url
+
+    def _send_cdp_command(self, ws_url: str, method: str, params: Optional[dict] = None) -> dict:
+        """Send a single CDP command over WebSocket and return the result."""
+
+        message_id = 1
+        payload = {"id": message_id, "method": method, "params": params or {}}
+        ws = create_connection(ws_url, timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+
+        try:
+            ws.send(json.dumps(payload))
+
+            while True:
+                raw = ws.recv()
+
+                if not raw:
+                    continue
+
+                message = json.loads(raw)
+
+                if message.get("id") != message_id:
+                    continue
+
+                if "error" in message:
+                    raise RuntimeError(message["error"])
+
+                return message.get("result", {})
+        finally:
+            ws.close()
 
     def _resolve_profile_dir(self) -> str:
         """Return a profile directory under the base dir."""
