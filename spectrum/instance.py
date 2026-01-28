@@ -24,6 +24,7 @@ class BrowserInstance:
     browser_path: str
     port: int
     process: Optional[subprocess.Popen]
+    current_target_id: Optional[str]
 
     def __init__(self, config: BrowserConfig) -> None:
         """Initialize the instance and resolve its runtime values."""
@@ -34,6 +35,7 @@ class BrowserInstance:
         self.browser_path = self._resolve_browser_path()
         self.port = config.remote_debugging_port or get_free_port()
         self.process: Optional[subprocess.Popen] = None
+        self.current_target_id: Optional[str] = None
 
     @property
     def endpoint(self) -> str:
@@ -77,7 +79,36 @@ class BrowserInstance:
             {"url": url},
         )
 
+        self.current_target_id = result.get("targetId")
+
         return result
+
+    @property
+    def content(self) -> str:
+        """Return the page HTML for the current target."""
+
+        if not self.current_target_id:
+            raise RuntimeError("No current target; call goto() first")
+
+        self.start()
+        self._wait_for_cdp()
+
+        ws_url = self._target_websocket_url(self.current_target_id)
+        result = self._send_cdp_command(
+            ws_url,
+            "Runtime.evaluate",
+            {"expression": "document.documentElement.outerHTML", "returnByValue": True},
+        )
+
+        if result.get("exceptionDetails"):
+            raise RuntimeError("Failed to retrieve page content")
+
+        value = result.get("result", {}).get("value")
+
+        if value is None:
+            raise RuntimeError("Missing page content result")
+
+        return value
 
     def close(self) -> None:
         """Terminate the browser process."""
@@ -128,6 +159,29 @@ class BrowserInstance:
             raise RuntimeError("Missing webSocketDebuggerUrl from CDP version endpoint")
 
         return ws_url
+
+    def _target_websocket_url(self, target_id: str) -> str:
+        """Return the target WebSocket debugger URL."""
+
+        target_url = f"{self.endpoint}/json/list"
+
+        with request.urlopen(target_url) as response:
+            payload = response.read().decode("utf-8")
+
+        data = json.loads(payload)
+
+        for entry in data:
+            entry_id = entry.get("id") or entry.get("targetId")
+
+            if entry_id == target_id:
+                ws_url = entry.get("webSocketDebuggerUrl")
+
+                if not ws_url:
+                    raise RuntimeError("Missing webSocketDebuggerUrl for target")
+
+                return ws_url
+
+        raise RuntimeError("Target not found")
 
     def _send_cdp_command(self, ws_url: str, method: str, params: Optional[dict] = None) -> dict:
         """Send a single CDP command over WebSocket and return the result."""
