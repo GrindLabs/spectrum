@@ -24,6 +24,7 @@ class AsyncBrowserInstance:
     port: int
     process: Optional[asyncio.subprocess.Process]
     current_target_id: Optional[str]
+    current_url: Optional[str]
 
     def __init__(self, config: BrowserConfig) -> None:
         """Initialize the instance and resolve its runtime values."""
@@ -35,6 +36,7 @@ class AsyncBrowserInstance:
         self.port = config.remote_debugging_port or get_free_port()
         self.process = None
         self.current_target_id = None
+        self.current_url = None
 
     @property
     def endpoint(self) -> str:
@@ -79,6 +81,7 @@ class AsyncBrowserInstance:
         )
 
         self.current_target_id = result.get("targetId")
+        self.current_url = url
 
         return result
 
@@ -92,7 +95,7 @@ class AsyncBrowserInstance:
         await self._wait_for_cdp()
 
         ws_url = await self._target_websocket_url(self.current_target_id)
-        await self._wait_for_dom_ready(ws_url)
+        await self._wait_for_dom_ready(ws_url, self.current_url)
         result = await self._send_cdp_command(
             ws_url,
             "Runtime.evaluate",
@@ -144,7 +147,7 @@ class AsyncBrowserInstance:
 
         raise TimeoutError("CDP endpoint did not become available") from last_error
 
-    async def _wait_for_dom_ready(self, ws_url: str) -> None:
+    async def _wait_for_dom_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
         """Wait until the document readyState is complete."""
 
         deadline = time.monotonic() + settings.WEBSOCKET_TIMEOUT_SECONDS
@@ -153,11 +156,16 @@ class AsyncBrowserInstance:
             result = await self._send_cdp_command(
                 ws_url,
                 "Runtime.evaluate",
-                {"expression": "document.readyState", "returnByValue": True},
+                {
+                    "expression": "({readyState: document.readyState, href: document.location.href})",
+                    "returnByValue": True,
+                },
             )
-            state = result.get("result", {}).get("value")
+            value = result.get("result", {}).get("value", {})
+            state = value.get("readyState")
+            href = value.get("href")
 
-            if state == "complete":
+            if state == "complete" and (not expected_url or href != "about:blank"):
                 return
 
             await asyncio.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
