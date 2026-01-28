@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from .config import BrowserConfig
+from ..config import BrowserConfig
 from .instance import BrowserInstance
 
 

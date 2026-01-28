@@ -17,8 +17,11 @@ python -m pip install -e .
 
 ## Usage
 
+### Sync
+
 ```python
-from spectrum import BrowserConfig, BrowserManager
+from spectrum.config import BrowserConfig
+from spectrum.sync_spectrum import BrowserManager
 
 manager = BrowserManager()
 config = BrowserConfig(
@@ -32,6 +35,33 @@ instance.goto("https://example.com")
 page_html = instance.content
 print(page_html)
 manager.close_all()
+```
+
+### Async (asyncio)
+
+```python
+import asyncio
+
+from spectrum.async_spectrum import AsyncBrowserManager
+from spectrum.config import BrowserConfig
+
+
+async def main() -> None:
+    manager = AsyncBrowserManager()
+    config = BrowserConfig(
+        proxy="http://127.0.0.1:8080",
+        window_size=(1280, 800),
+        viewport=(1280, 720),
+    )
+    instance = await manager.launch(config)
+    print(instance.endpoint)
+    await instance.goto("https://example.com")
+    page_html = await instance.content()
+    print(page_html)
+    await manager.close_all()
+
+
+asyncio.run(main())
 ```
 
 ## Development
