@@ -93,6 +93,7 @@ class BrowserInstance:
         self._wait_for_cdp()
 
         ws_url = self._target_websocket_url(self.current_target_id)
+        self._wait_for_dom_ready(ws_url)
         result = self._send_cdp_command(
             ws_url,
             "Runtime.evaluate",
@@ -142,6 +143,24 @@ class BrowserInstance:
             time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
 
         raise TimeoutError("CDP endpoint did not become available") from last_error
+
+    def _wait_for_dom_ready(self, ws_url: str) -> None:
+        """Wait until the document readyState is complete."""
+
+        deadline = time.monotonic() + settings.WEBSOCKET_TIMEOUT_SECONDS
+
+        while time.monotonic() < deadline:
+            result = self._send_cdp_command(
+                ws_url,
+                "Runtime.evaluate",
+                {"expression": "document.readyState", "returnByValue": True},
+            )
+            state = result.get("result", {}).get("value")
+
+            if state == "complete":
+                return
+
+            time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
 
     def _browser_websocket_url(self) -> str:
         """Return the browser-level WebSocket debugger URL."""
