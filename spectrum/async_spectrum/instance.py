@@ -96,6 +96,7 @@ class AsyncBrowserInstance:
 
         ws_url = await self._target_websocket_url(self.current_target_id)
         await self._wait_for_dom_ready(ws_url, self.current_url)
+        await self._wait_for_content_ready(ws_url, self.current_url)
         result = await self._send_cdp_command(
             ws_url,
             "Runtime.evaluate",
@@ -150,7 +151,7 @@ class AsyncBrowserInstance:
     async def _wait_for_dom_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
         """Wait until the document readyState is complete."""
 
-        deadline = time.monotonic() + settings.WEBSOCKET_TIMEOUT_SECONDS
+        deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
 
         while time.monotonic() < deadline:
             result = await self._send_cdp_command(
@@ -166,6 +167,38 @@ class AsyncBrowserInstance:
             href = value.get("href")
 
             if state == "complete" and (not expected_url or href != "about:blank"):
+                return
+
+            await asyncio.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+
+    async def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
+        """Wait for navigation and anti-bot challenges to complete."""
+
+        if not expected_url:
+            return
+
+        deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
+        challenge_expression = (
+            "({"
+            "href: document.location.href,"
+            "readyState: document.readyState,"
+            "hasChallengeContainer: Boolean(document.querySelector('#challenge-container')),"
+            "hasChallengeScript: Boolean(document.querySelector('script[src*=\"__challenge\"]'))"
+            "})"
+        )
+
+        while time.monotonic() < deadline:
+            result = await self._send_cdp_command(
+                ws_url,
+                "Runtime.evaluate",
+                {"expression": challenge_expression, "returnByValue": True},
+            )
+            value = result.get("result", {}).get("value", {})
+            href = value.get("href")
+            ready_state = value.get("readyState")
+            has_challenge = bool(value.get("hasChallengeContainer") or value.get("hasChallengeScript"))
+
+            if isinstance(href, str) and href.startswith(expected_url) and ready_state == "complete" and not has_challenge:
                 return
 
             await asyncio.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
