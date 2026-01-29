@@ -179,7 +179,7 @@ class AsyncBrowserInstance:
                 return
 
     async def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
-        """Wait for navigation to complete."""
+        """Wait for the document URL to change from the initial URL."""
 
         if not expected_url:
             return
@@ -189,7 +189,7 @@ class AsyncBrowserInstance:
         while time.monotonic() < deadline:
             document_url = await self._document_url(ws_url)
 
-            if isinstance(document_url, str) and document_url.startswith(expected_url) and document_url != "about:blank":
+            if isinstance(document_url, str) and document_url != "about:blank" and document_url != expected_url:
                 return
 
             await asyncio.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
