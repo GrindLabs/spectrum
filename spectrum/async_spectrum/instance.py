@@ -97,7 +97,11 @@ class AsyncBrowserInstance:
         ws_url = await self._target_websocket_url(self.current_target_id)
         await self._wait_for_dom_ready(ws_url, self.current_url)
         await self._wait_for_content_ready(ws_url, self.current_url)
-        async with websockets.connect(ws_url, open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS) as ws:
+        async with websockets.connect(
+            ws_url,
+            open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS,
+            max_size=None,
+        ) as ws:
             message_id = 1
             document, message_id = await self._send_cdp_command_on_ws(
                 ws,
@@ -233,7 +237,11 @@ class AsyncBrowserInstance:
         payload = {"id": message_id, "method": "Page.enable", "params": {}}
         deadline = time.monotonic() + timeout
 
-        async with websockets.connect(ws_url, open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS) as ws:
+        async with websockets.connect(
+            ws_url,
+            open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS,
+            max_size=None,
+        ) as ws:
             await ws.send(json.dumps(payload))
 
             while True:
@@ -265,7 +273,11 @@ class AsyncBrowserInstance:
 
         deadline = time.monotonic() + timeout
 
-        async with websockets.connect(ws_url, open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS) as ws:
+        async with websockets.connect(
+            ws_url,
+            open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS,
+            max_size=None,
+        ) as ws:
             message_id = 1
             _, message_id = await self._send_cdp_command_on_ws(
                 ws,
