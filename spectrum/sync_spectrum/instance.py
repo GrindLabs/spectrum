@@ -98,21 +98,28 @@ class BrowserInstance:
         ws_url = self._target_websocket_url(self.current_target_id)
         self._wait_for_dom_ready(ws_url, self.current_url)
         self._wait_for_content_ready(ws_url, self.current_url)
+        document = self._send_cdp_command(
+            ws_url,
+            "DOM.getDocument",
+            {"depth": 0, "pierce": True},
+        )
+        root = document.get("root", {})
+        node_id = root.get("nodeId")
+
+        if not node_id:
+            raise RuntimeError("Missing document node id")
+
         result = self._send_cdp_command(
             ws_url,
-            "Runtime.evaluate",
-            {"expression": "document.documentElement.outerHTML", "returnByValue": True},
+            "DOM.getOuterHTML",
+            {"nodeId": node_id},
         )
+        outer_html = result.get("outerHTML")
 
-        if result.get("exceptionDetails"):
-            raise RuntimeError("Failed to retrieve page content")
-
-        value = result.get("result", {}).get("value")
-
-        if value is None:
+        if outer_html is None:
             raise RuntimeError("Missing page content result")
 
-        return value
+        return outer_html
 
     def close(self) -> None:
         """Terminate the browser process."""
@@ -154,54 +161,100 @@ class BrowserInstance:
         deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
 
         while time.monotonic() < deadline:
-            result = self._send_cdp_command(
-                ws_url,
-                "Runtime.evaluate",
-                {
-                    "expression": "({readyState: document.readyState, href: document.location.href})",
-                    "returnByValue": True,
-                },
-            )
-            value = result.get("result", {}).get("value", {})
-            state = value.get("readyState")
-            href = value.get("href")
-
-            if state == "complete" and (not expected_url or href != "about:blank"):
+            if self._document_url_ready(ws_url, expected_url):
                 return
 
-            time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+            remaining = deadline - time.monotonic()
+
+            if remaining <= 0:
+                return
+
+            try:
+                self._wait_for_page_load_event(ws_url, remaining)
+            except TimeoutError:
+                return
 
     def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
-        """Wait for navigation and anti-bot challenges to complete."""
+        """Wait for navigation to complete."""
 
         if not expected_url:
             return
 
         deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
-        challenge_expression = (
-            "({"
-            "href: document.location.href,"
-            "readyState: document.readyState,"
-            "hasChallengeContainer: Boolean(document.querySelector('#challenge-container')),"
-            "hasChallengeScript: Boolean(document.querySelector('script[src*=\"__challenge\"]'))"
-            "})"
-        )
 
         while time.monotonic() < deadline:
-            result = self._send_cdp_command(
-                ws_url,
-                "Runtime.evaluate",
-                {"expression": challenge_expression, "returnByValue": True},
-            )
-            value = result.get("result", {}).get("value", {})
-            href = value.get("href")
-            ready_state = value.get("readyState")
-            has_challenge = bool(value.get("hasChallengeContainer") or value.get("hasChallengeScript"))
+            document_url = self._document_url(ws_url)
 
-            if isinstance(href, str) and href.startswith(expected_url) and ready_state == "complete" and not has_challenge:
+            if isinstance(document_url, str) and document_url.startswith(expected_url) and document_url != "about:blank":
                 return
 
             time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+
+    def _document_url(self, ws_url: str) -> Optional[str]:
+        """Return the current document URL via the DOM domain."""
+
+        result = self._send_cdp_command(
+            ws_url,
+            "DOM.getDocument",
+            {"depth": 0, "pierce": True},
+        )
+        root = result.get("root", {})
+
+        return root.get("documentURL")
+
+    def _document_url_ready(self, ws_url: str, expected_url: Optional[str]) -> bool:
+        """Check whether the document has a usable URL."""
+
+        document_url = self._document_url(ws_url)
+
+        if not document_url:
+            return False
+
+        if document_url == "about:blank":
+            return False
+
+        if expected_url and not document_url.startswith(expected_url):
+            return False
+
+        return True
+
+    def _wait_for_page_load_event(self, ws_url: str, timeout: float) -> None:
+        """Wait for Page.loadEventFired on the target."""
+
+        if timeout <= 0:
+            raise TimeoutError("Timed out waiting for Page.loadEventFired")
+
+        message_id = 1
+        payload = {"id": message_id, "method": "Page.enable", "params": {}}
+        deadline = time.monotonic() + timeout
+        ws = create_connection(ws_url, timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+
+        try:
+            ws.send(json.dumps(payload))
+
+            while True:
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for Page.loadEventFired")
+
+                ws.settimeout(remaining)
+                raw = ws.recv()
+
+                if not raw:
+                    continue
+
+                message = json.loads(raw)
+
+                if message.get("id") == message_id:
+                    if "error" in message:
+                        raise RuntimeError(message["error"])
+                    continue
+
+                if message.get("method") == "Page.loadEventFired":
+                    return
+        finally:
+            ws.close()
 
     def _browser_websocket_url(self) -> str:
         """Return the browser-level WebSocket debugger URL."""
