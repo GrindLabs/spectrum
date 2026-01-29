@@ -179,20 +179,21 @@ class AsyncBrowserInstance:
                 return
 
     async def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
-        """Wait for the document URL to change from the initial URL."""
+        """Wait for network idle after navigation."""
 
         if not expected_url:
             return
 
         deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
+        remaining = deadline - time.monotonic()
 
-        while time.monotonic() < deadline:
-            document_url = await self._document_url(ws_url)
+        if remaining <= 0:
+            return
 
-            if isinstance(document_url, str) and document_url != "about:blank" and document_url != expected_url:
-                return
-
-            await asyncio.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+        try:
+            await self._wait_for_network_idle(ws_url, remaining)
+        except TimeoutError:
+            return
 
     async def _document_url(self, ws_url: str) -> Optional[str]:
         """Return the current document URL via the DOM domain."""
@@ -254,6 +255,50 @@ class AsyncBrowserInstance:
                     continue
 
                 if message.get("method") == "Page.loadEventFired":
+                    return
+
+    async def _wait_for_network_idle(self, ws_url: str, timeout: float) -> None:
+        """Wait for Page.lifecycleEvent networkIdle on the target."""
+
+        if timeout <= 0:
+            raise TimeoutError("Timed out waiting for Page.lifecycleEvent networkIdle")
+
+        deadline = time.monotonic() + timeout
+
+        async with websockets.connect(ws_url, open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS) as ws:
+            message_id = 1
+            _, message_id = await self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "Page.enable",
+                {},
+            )
+            _, message_id = await self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "Page.setLifecycleEventsEnabled",
+                {"enabled": True},
+            )
+
+            while True:
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for Page.lifecycleEvent networkIdle")
+
+                raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+
+                if not raw:
+                    continue
+
+                message = json.loads(raw)
+
+                if message.get("method") != "Page.lifecycleEvent":
+                    continue
+
+                params = message.get("params", {})
+
+                if params.get("name") == "networkIdle":
                     return
 
     async def _browser_websocket_url(self) -> str:

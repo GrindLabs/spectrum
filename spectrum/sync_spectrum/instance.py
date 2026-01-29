@@ -182,20 +182,21 @@ class BrowserInstance:
                 return
 
     def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
-        """Wait for navigation to complete."""
+        """Wait for network idle after navigation."""
 
         if not expected_url:
             return
 
         deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
+        remaining = deadline - time.monotonic()
 
-        while time.monotonic() < deadline:
-            document_url = self._document_url(ws_url)
+        if remaining <= 0:
+            return
 
-            if isinstance(document_url, str) and document_url.startswith(expected_url) and document_url != "about:blank":
-                return
-
-            time.sleep(settings.STARTUP_POLL_INTERVAL_SECONDS)
+        try:
+            self._wait_for_network_idle(ws_url, remaining)
+        except TimeoutError:
+            return
 
     def _document_url(self, ws_url: str) -> Optional[str]:
         """Return the current document URL via the DOM domain."""
@@ -259,6 +260,54 @@ class BrowserInstance:
                     continue
 
                 if message.get("method") == "Page.loadEventFired":
+                    return
+        finally:
+            ws.close()
+
+    def _wait_for_network_idle(self, ws_url: str, timeout: float) -> None:
+        """Wait for Page.lifecycleEvent networkIdle on the target."""
+
+        if timeout <= 0:
+            raise TimeoutError("Timed out waiting for Page.lifecycleEvent networkIdle")
+
+        deadline = time.monotonic() + timeout
+        ws = create_connection(ws_url, timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+
+        try:
+            message_id = 1
+            _, message_id = self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "Page.enable",
+                {},
+            )
+            _, message_id = self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "Page.setLifecycleEventsEnabled",
+                {"enabled": True},
+            )
+
+            while True:
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for Page.lifecycleEvent networkIdle")
+
+                ws.settimeout(remaining)
+                raw = ws.recv()
+
+                if not raw:
+                    continue
+
+                message = json.loads(raw)
+
+                if message.get("method") != "Page.lifecycleEvent":
+                    continue
+
+                params = message.get("params", {})
+
+                if params.get("name") == "networkIdle":
                     return
         finally:
             ws.close()
