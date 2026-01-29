@@ -29,7 +29,6 @@ DEFAULT_FLAGS: Final[Sequence[str]] = (
     "--disable-popup-blocking",
     "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
-    "--homepage=about:blank",
     "--remote-allow-origins=*",
 )
 
