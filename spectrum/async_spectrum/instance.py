@@ -97,23 +97,27 @@ class AsyncBrowserInstance:
         ws_url = await self._target_websocket_url(self.current_target_id)
         await self._wait_for_dom_ready(ws_url, self.current_url)
         await self._wait_for_content_ready(ws_url, self.current_url)
-        document = await self._send_cdp_command(
-            ws_url,
-            "DOM.getDocument",
-            {"depth": 0, "pierce": True},
-        )
-        root = document.get("root", {})
-        node_id = root.get("nodeId")
+        async with websockets.connect(ws_url, open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS) as ws:
+            message_id = 1
+            document, message_id = await self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "DOM.getDocument",
+                {"depth": 0, "pierce": True},
+            )
+            root = document.get("root", {})
+            node_id = root.get("nodeId")
 
-        if not node_id:
-            raise RuntimeError("Missing document node id")
+            if not node_id:
+                raise RuntimeError("Missing document node id")
 
-        result = await self._send_cdp_command(
-            ws_url,
-            "DOM.getOuterHTML",
-            {"nodeId": node_id},
-        )
-        outer_html = result.get("outerHTML")
+            result, _ = await self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "DOM.getOuterHTML",
+                {"nodeId": node_id},
+            )
+            outer_html = result.get("outerHTML")
 
         if outer_html is None:
             raise RuntimeError("Missing page content result")
@@ -319,3 +323,31 @@ class AsyncBrowserInstance:
                     raise RuntimeError(message["error"])
 
                 return message.get("result", {})
+
+    async def _send_cdp_command_on_ws(
+        self,
+        ws: websockets.WebSocketClientProtocol,
+        message_id: int,
+        method: str,
+        params: Optional[dict] = None,
+    ) -> tuple[dict, int]:
+        """Send a CDP command using an existing WebSocket connection."""
+
+        payload = {"id": message_id, "method": method, "params": params or {}}
+        await ws.send(json.dumps(payload))
+
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+
+            if not raw:
+                continue
+
+            message = json.loads(raw)
+
+            if message.get("id") != message_id:
+                continue
+
+            if "error" in message:
+                raise RuntimeError(message["error"])
+
+            return message.get("result", {}), message_id + 1

@@ -98,23 +98,30 @@ class BrowserInstance:
         ws_url = self._target_websocket_url(self.current_target_id)
         self._wait_for_dom_ready(ws_url, self.current_url)
         self._wait_for_content_ready(ws_url, self.current_url)
-        document = self._send_cdp_command(
-            ws_url,
-            "DOM.getDocument",
-            {"depth": 0, "pierce": True},
-        )
-        root = document.get("root", {})
-        node_id = root.get("nodeId")
+        ws = create_connection(ws_url, timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+        try:
+            message_id = 1
+            document, message_id = self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "DOM.getDocument",
+                {"depth": 0, "pierce": True},
+            )
+            root = document.get("root", {})
+            node_id = root.get("nodeId")
 
-        if not node_id:
-            raise RuntimeError("Missing document node id")
+            if not node_id:
+                raise RuntimeError("Missing document node id")
 
-        result = self._send_cdp_command(
-            ws_url,
-            "DOM.getOuterHTML",
-            {"nodeId": node_id},
-        )
-        outer_html = result.get("outerHTML")
+            result, _ = self._send_cdp_command_on_ws(
+                ws,
+                message_id,
+                "DOM.getOuterHTML",
+                {"nodeId": node_id},
+            )
+            outer_html = result.get("outerHTML")
+        finally:
+            ws.close()
 
         if outer_html is None:
             raise RuntimeError("Missing page content result")
@@ -322,3 +329,31 @@ class BrowserInstance:
                 return message.get("result", {})
         finally:
             ws.close()
+
+    def _send_cdp_command_on_ws(
+        self,
+        ws,
+        message_id: int,
+        method: str,
+        params: Optional[dict] = None,
+    ) -> tuple[dict, int]:
+        """Send a CDP command using an existing WebSocket connection."""
+
+        payload = {"id": message_id, "method": method, "params": params or {}}
+        ws.send(json.dumps(payload))
+
+        while True:
+            raw = ws.recv()
+
+            if not raw:
+                continue
+
+            message = json.loads(raw)
+
+            if message.get("id") != message_id:
+                continue
+
+            if "error" in message:
+                raise RuntimeError(message["error"])
+
+            return message.get("result", {}), message_id + 1
