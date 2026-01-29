@@ -100,7 +100,7 @@ class AsyncBrowserInstance:
         result = await self._send_cdp_command(
             ws_url,
             "Runtime.evaluate",
-            {"expression": "document.documentElement.outerHTML", "returnByValue": True},
+            {"expression": "document.querySelector('html')", "returnByValue": True},
         )
 
         if result.get("exceptionDetails"):
