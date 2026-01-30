@@ -78,17 +78,26 @@ class AsyncBrowserInstance:
         await self.start()
         await self._wait_for_cdp()
 
-        ws_url = await self._browser_websocket_url()
         if self.config.navigation_strategies:
             context = NavigationContext(url=url, instance_id=self.id, config=self.config)
             await run_before_navigation_async(self.config.navigation_strategies, context)
-        result = await self._send_cdp_command(
-            ws_url,
-            "Target.createTarget",
-            {"url": url},
-        )
 
-        self.current_target_id = result.get("targetId")
+        if self.current_target_id:
+            ws_url = await self._target_websocket_url(self.current_target_id)
+            result = await self._send_cdp_command(
+                ws_url,
+                "Page.navigate",
+                {"url": url},
+            )
+        else:
+            ws_url = await self._browser_websocket_url()
+            result = await self._send_cdp_command(
+                ws_url,
+                "Target.createTarget",
+                {"url": url},
+            )
+            self.current_target_id = result.get("targetId")
+
         self.current_url = url
 
         if self.config.navigation_strategies:
