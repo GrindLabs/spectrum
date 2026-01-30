@@ -12,6 +12,7 @@ from .. import settings
 from ..config import BrowserConfig
 from ..ports import get_free_port
 from ..runtime import build_flags, resolve_browser_path, resolve_profile_dir
+from ..strategies.base import NavigationContext, run_after_navigation, run_before_navigation
 
 
 class BrowserInstance:
@@ -74,6 +75,9 @@ class BrowserInstance:
         self._wait_for_cdp()
 
         ws_url = self._browser_websocket_url()
+        if self.config.navigation_strategies:
+            context = NavigationContext(url=url, instance_id=self.id, config=self.config)
+            run_before_navigation(self.config.navigation_strategies, context)
         result = self._send_cdp_command(
             ws_url,
             "Target.createTarget",
@@ -82,6 +86,15 @@ class BrowserInstance:
 
         self.current_target_id = result.get("targetId")
         self.current_url = url
+
+        if self.config.navigation_strategies:
+            post_context = NavigationContext(
+                url=url,
+                instance_id=self.id,
+                config=self.config,
+                target_id=self.current_target_id,
+            )
+            run_after_navigation(self.config.navigation_strategies, post_context)
 
         return result
 

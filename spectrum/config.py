@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from . import settings
+
+if TYPE_CHECKING:
+    from .strategies.base import NavigationStrategy
 
 
 @dataclass(frozen=True)
@@ -15,3 +18,4 @@ class BrowserConfig:
     viewport: Optional[Tuple[int, int]] = settings.DEFAULT_VIEWPORT
     remote_debugging_port: Optional[int] = None
     extra_flags: List[str] = field(default_factory=list)
+    navigation_strategies: List["NavigationStrategy"] = field(default_factory=list)
