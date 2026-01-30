@@ -32,6 +32,7 @@ config = BrowserConfig(
 instance = manager.launch(config)
 print(instance.endpoint)
 instance.goto("https://example.com")
+# Subsequent goto calls reuse the same tab.
 page_html = instance.content
 print(page_html)
 manager.close_all()
@@ -56,6 +57,7 @@ async def main() -> None:
     instance = await manager.launch(config)
     print(instance.endpoint)
     await instance.goto("https://example.com")
+    # Subsequent goto calls reuse the same tab.
     page_html = await instance.content()
     print(page_html)
     await manager.close_all()
