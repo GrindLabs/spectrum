@@ -1,6 +1,8 @@
+from dataclasses import replace
 from typing import Dict, Optional
 
 from ..config import BrowserConfig
+from ..strategies import default_strategies, merge_strategies
 from .instance import AsyncBrowserInstance
 
 
@@ -17,7 +19,12 @@ class AsyncBrowserManager:
     async def launch(self, config: BrowserConfig) -> AsyncBrowserInstance:
         """Launch and register a browser instance."""
 
-        instance = AsyncBrowserInstance(config)
+        strategies = merge_strategies(
+            default_strategies(),
+            config.strategy_overrides,
+            config.navigation_strategies,
+        )
+        instance = AsyncBrowserInstance(replace(config, navigation_strategies=strategies))
         await instance.start()
         self.instances[instance.id] = instance
 

@@ -1,6 +1,8 @@
+from dataclasses import replace
 from typing import Dict, Optional
 
 from ..config import BrowserConfig
+from ..strategies import default_strategies, merge_strategies
 from .instance import BrowserInstance
 
 
@@ -17,7 +19,12 @@ class BrowserManager:
     def launch(self, config: BrowserConfig) -> BrowserInstance:
         """Launch and register a browser instance."""
 
-        instance = BrowserInstance(config)
+        strategies = merge_strategies(
+            default_strategies(),
+            config.strategy_overrides,
+            config.navigation_strategies,
+        )
+        instance = BrowserInstance(replace(config, navigation_strategies=strategies))
         instance.start()
         self.instances[instance.id] = instance
 

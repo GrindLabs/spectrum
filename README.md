@@ -22,12 +22,17 @@ python -m pip install -e .
 ```python
 from spectrum.config import BrowserConfig
 from spectrum.sync_spectrum import BrowserManager
-
+from spectrum.strategies import ReconStrategy
 manager = BrowserManager()
 config = BrowserConfig(
     proxy="http://127.0.0.1:8080",
     window_size=(1280, 800),
     viewport=(1280, 720),
+    remote_debugging_port=9222,
+    strategy_overrides={
+        "perimeterx": None,
+        "recon": ReconStrategy(),
+    },
 )
 instance = manager.launch(config)
 print(instance.endpoint)
@@ -45,7 +50,7 @@ import asyncio
 
 from spectrum.async_spectrum import AsyncBrowserManager
 from spectrum.config import BrowserConfig
-
+from spectrum.strategies import ReconStrategy
 
 async def main() -> None:
     manager = AsyncBrowserManager()
@@ -53,6 +58,11 @@ async def main() -> None:
         proxy="http://127.0.0.1:8080",
         window_size=(1280, 800),
         viewport=(1280, 720),
+        remote_debugging_port=9222,
+        strategy_overrides={
+            "perimeterx": None,
+            "recon": ReconStrategy(),
+        },
     )
     instance = await manager.launch(config)
     print(instance.endpoint)
@@ -65,6 +75,18 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+### Recon behavior notes
+
+- Navigation strategies are loaded by default (Recon + PerimeterX). Use
+  `strategy_overrides` to replace or disable by name (set value to `None`).
+- Recon runs before navigation to preflight tech/WAF signals.
+- CAPTCHA providers are detected after navigation (HTML markers). If a CAPTCHA is
+  detected and no strategy is available, `CaptchaFoundError` is raised and the
+  browser is closed via CDP.
+- If a WAF challenge is detected after navigation and no strategy exists, a
+  `BanError` is raised and the browser is closed via CDP.
+- WAF strategies (e.g., PerimeterX) are applied automatically when detected.
 
 ## Development
 
