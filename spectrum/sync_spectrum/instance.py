@@ -107,6 +107,39 @@ class BrowserInstance:
 
         return result
 
+    def actions(self, actions: list[dict]) -> dict:
+        """Execute a sequence of CDP commands on the current target."""
+
+        if not actions:
+            raise ValueError("actions must be a non-empty list")
+
+        if not self.current_target_id:
+            raise RuntimeError("No current target; call goto() first")
+
+        self.start()
+        self._wait_for_cdp()
+
+        ws_url = self._target_websocket_url(self.current_target_id)
+        ws = create_connection(ws_url, timeout=settings.WEBSOCKET_TIMEOUT_SECONDS)
+        try:
+            message_id = 1
+            last_result: dict = {}
+            for action in actions:
+                method = action.get("method")
+                if not method:
+                    raise ValueError("action method is required")
+                params = action.get("params") or {}
+                last_result, message_id = self._send_cdp_command_on_ws(
+                    ws,
+                    message_id,
+                    method,
+                    params,
+                )
+        finally:
+            ws.close()
+
+        return last_result
+
     @property
     def content(self) -> str:
         """Return the page HTML for the current target."""

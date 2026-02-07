@@ -111,6 +111,40 @@ class AsyncBrowserInstance:
 
         return result
 
+    async def actions(self, actions: list[dict]) -> dict:
+        """Execute a sequence of CDP commands on the current target."""
+
+        if not actions:
+            raise ValueError("actions must be a non-empty list")
+
+        if not self.current_target_id:
+            raise RuntimeError("No current target; call goto() first")
+
+        await self.start()
+        await self._wait_for_cdp()
+
+        ws_url = await self._target_websocket_url(self.current_target_id)
+        async with websockets.connect(
+            ws_url,
+            open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS,
+            max_size=None,
+        ) as ws:
+            message_id = 1
+            last_result: dict = {}
+            for action in actions:
+                method = action.get("method")
+                if not method:
+                    raise ValueError("action method is required")
+                params = action.get("params") or {}
+                last_result, message_id = await self._send_cdp_command_on_ws(
+                    ws,
+                    message_id,
+                    method,
+                    params,
+                )
+
+        return last_result
+
     async def content(self) -> str:
         """Return the page HTML for the current target."""
 
