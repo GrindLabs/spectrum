@@ -111,7 +111,7 @@ class AsyncBrowserInstance:
 
         return result
 
-    async def actions(self, actions: list[dict]) -> dict:
+    async def actions(self, actions: list[dict], wait_for_selector: Optional[str] = None) -> dict:
         """Execute a sequence of CDP commands on the current target."""
 
         if not actions:
@@ -143,9 +143,12 @@ class AsyncBrowserInstance:
                     params,
                 )
 
+        if wait_for_selector:
+            await self._wait_for_selector_visible(ws_url, wait_for_selector)
+
         return last_result
 
-    async def content(self) -> str:
+    async def content(self, wait_for_selector: Optional[str] = None) -> str:
         """Return the page HTML for the current target."""
 
         if not self.current_target_id:
@@ -155,8 +158,8 @@ class AsyncBrowserInstance:
         await self._wait_for_cdp()
 
         ws_url = await self._target_websocket_url(self.current_target_id)
-        await self._wait_for_dom_ready(ws_url, self.current_url)
-        await self._wait_for_content_ready(ws_url, self.current_url)
+        await self._wait_for_dom_ready(ws_url, self.current_url, wait_for_selector)
+        await self._wait_for_content_ready(ws_url, self.current_url, wait_for_selector)
         async with websockets.connect(
             ws_url,
             open_timeout=settings.WEBSOCKET_TIMEOUT_SECONDS,
@@ -223,12 +226,20 @@ class AsyncBrowserInstance:
 
         raise TimeoutError("CDP endpoint did not become available") from last_error
 
-    async def _wait_for_dom_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
+    async def _wait_for_dom_ready(
+        self,
+        ws_url: str,
+        expected_url: Optional[str],
+        wait_for_selector: Optional[str] = None,
+    ) -> None:
         """Wait until the document readyState is complete."""
 
         deadline = time.monotonic() + settings.PAGE_LOAD_TIMEOUT_SECONDS
 
         while time.monotonic() < deadline:
+            if wait_for_selector and await self._selector_visible(ws_url, wait_for_selector):
+                return
+
             if await self._document_url_ready(ws_url, expected_url):
                 return
 
@@ -242,7 +253,12 @@ class AsyncBrowserInstance:
             except TimeoutError:
                 return
 
-    async def _wait_for_content_ready(self, ws_url: str, expected_url: Optional[str]) -> None:
+    async def _wait_for_content_ready(
+        self,
+        ws_url: str,
+        expected_url: Optional[str],
+        wait_for_selector: Optional[str] = None,
+    ) -> None:
         """Wait for network idle after navigation."""
 
         if not expected_url:
@@ -254,10 +270,71 @@ class AsyncBrowserInstance:
         if remaining <= 0:
             return
 
+        if wait_for_selector:
+            await self._wait_for_selector_visible(ws_url, wait_for_selector, timeout=remaining)
+            return
+
         try:
             await self._wait_for_network_idle(ws_url, remaining)
         except TimeoutError:
             return
+
+    async def _selector_visible(self, ws_url: str, selector: str) -> bool:
+        """Return True when a CSS selector resolves to a visible element."""
+
+        if not selector:
+            return False
+
+        expression = f"""
+(() => {{
+    const selector = {json.dumps(selector)};
+    const el = document.querySelector(selector);
+    if (!el) {{
+        return false;
+    }}
+    const style = window.getComputedStyle(el);
+    if (!style) {{
+        return false;
+    }}
+    if (style.visibility === 'hidden' || style.display === 'none') {{
+        return false;
+    }}
+    const rects = el.getClientRects();
+    return !!rects && rects.length > 0;
+}})()
+""".strip()
+
+        result = await self._send_cdp_command(
+            ws_url,
+            "Runtime.evaluate",
+            {"expression": expression, "returnByValue": True},
+        )
+        evaluation = result.get("result", {})
+
+        return bool(evaluation.get("value"))
+
+    async def _wait_for_selector_visible(
+        self,
+        ws_url: str,
+        selector: str,
+        timeout: Optional[float] = None,
+    ) -> None:
+        """Wait until a CSS selector is visible or timeout elapses."""
+
+        if not selector:
+            return
+
+        if timeout is None:
+            timeout = settings.PAGE_LOAD_TIMEOUT_SECONDS
+
+        deadline = time.monotonic() + timeout
+        poll_interval = settings.STARTUP_POLL_INTERVAL_SECONDS
+
+        while time.monotonic() < deadline:
+            if await self._selector_visible(ws_url, selector):
+                return
+
+            await asyncio.sleep(poll_interval)
 
     async def _document_url(self, ws_url: str) -> Optional[str]:
         """Return the current document URL via the DOM domain."""

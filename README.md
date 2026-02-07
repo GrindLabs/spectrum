@@ -127,12 +127,14 @@ asyncio.run(main())
   - Starts the browser process if needed.
 - `goto(url: str) -> dict`
   - Navigates to a URL and returns the CDP response.
-- `actions(actions: list[dict]) -> dict`
+- `actions(actions: list[dict], wait_for_selector: Optional[str] = None) -> dict`
   - Executes a list of CDP commands on the current tab and returns the last command result.
   - Each action must be `{"method": str, "params": dict}`.
   - Requires `goto()` to have been called at least once.
 - `content: str`
   - HTML of the current page. Requires `goto()` first.
+- `content_with_selector(wait_for_selector: Optional[str] = None) -> str`
+  - HTML of the current page with optional early-exit selector. Requires `goto()` first.
 - `close() -> None`
   - Terminates the browser process.
 
@@ -144,9 +146,9 @@ asyncio.run(main())
   - Starts the browser process if needed.
 - `goto(url: str) -> dict`
   - Navigates to a URL and returns the CDP response.
-- `actions(actions: list[dict]) -> dict`
+- `actions(actions: list[dict], wait_for_selector: Optional[str] = None) -> dict`
   - Async version of `actions`.
-- `content() -> str`
+- `content(wait_for_selector: Optional[str] = None) -> str`
   - HTML of the current page. Requires `goto()` first.
 - `close() -> None`
   - Terminates the browser process.
@@ -170,7 +172,7 @@ instance.actions(
     ]
 )
 
-page_html = instance.content
+page_html = instance.content_with_selector("body")
 print(page_html)
 manager.close_all()
 ```
@@ -193,7 +195,7 @@ async def main() -> None:
             {"method": "Input.dispatchMouseEvent", "params": {"type": "mouseWheel", "x": 400, "y": 300, "deltaY": 600}},
         ]
     )
-    page_html = await instance.content()
+    page_html = await instance.content(wait_for_selector="body")
     print(page_html)
     await manager.close_all()
 
